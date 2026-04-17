@@ -3,6 +3,10 @@ let parsedData = null;
 let currentTab = 'tree';
 let sortCol = null;
 let sortAsc = true;
+let conditionLogic = 'AND'; // 'AND' | 'OR'
+let conditionRows = [];    // 条件行の状態リスト
+let conditionCounter = 0;  // 行IDのカウンター
+let _analysisArr = null;   // 分析対象配列キャッシュ
 
 // ===== エディタ初期化 =====
 const textarea = document.getElementById('jsonInput');
@@ -261,13 +265,17 @@ function detectAnalysisTarget(data) {
   return best;
 }
 
-// ===== 分析ビュー =====
+let currentBaseArr = null;
+let currentBaseStats = null;
+
 function renderAnalysis(data) {
   const container = document.getElementById('analysisContainer');
   const { arr, path: detectedPath } = detectAnalysisTarget(data);
   if (!arr || arr.length === 0) { container.innerHTML = '<div class="empty-state"><div class="empty-icon">📊</div><p>分析可能な配列データが見つかりません</p></div>'; return; }
 
-  const stats = analyzeData(arr);
+  currentBaseArr = arr;
+  currentBaseStats = analyzeData(arr);
+
   container.innerHTML = '';
   container.classList.add('fade-in');
 
@@ -278,10 +286,39 @@ function renderAnalysis(data) {
     container.appendChild(banner);
   }
 
+  // 条件チェッカー (再描画しない領域)
+  _analysisArr = arr;
+  container.appendChild(buildConditionCheckerSection(currentBaseStats, arr));
+
+  // 結果描画用コンテナ (絞り込みで再描画される領域)
+  const dynamicContainer = el('div', 'analysis-dynamic-results');
+  dynamicContainer.id = 'analysisDynamicResults';
+  dynamicContainer.style.display = 'flex';
+  dynamicContainer.style.flexDirection = 'column';
+  dynamicContainer.style.gap = '20px';
+  dynamicContainer.style.marginTop = '20px';
+  container.appendChild(dynamicContainer);
+
+  // 初期状態は全件で描画
+  renderDynamicAnalysisResults(arr);
+}
+
+function renderDynamicAnalysisResults(filteredArr) {
+  const container = document.getElementById('analysisDynamicResults');
+  if (!container) return;
+  container.innerHTML = '';
+
+  if (!filteredArr || filteredArr.length === 0) {
+    container.innerHTML = '<div class="empty-state" style="padding: 40px 0;"><div class="empty-icon">📭</div><p>条件に一致するデータがありません</p></div>';
+    return;
+  }
+
+  const stats = analyzeData(filteredArr);
+
   // 概要カード
   const overviewGrid = el('div', 'overview-grid');
   const overviewData = [
-    { v: arr.length, l: '総レコード数' },
+    { v: filteredArr.length, l: '総レコード数' },
     { v: stats.fields.length, l: 'フィールド数' },
     { v: stats.totalNullCount, l: 'Null総数' },
     { v: stats.enumFields.length, l: 'Enum候補フィールド' },
@@ -296,13 +333,13 @@ function renderAnalysis(data) {
   container.appendChild(overviewGrid);
 
   // Null率
-  container.appendChild(buildNullSection(stats, arr.length));
+  container.appendChild(buildNullSection(stats, filteredArr.length));
   // Enum分析
   if (stats.enumFields.length > 0) container.appendChild(buildEnumSection(stats));
   // 数値統計
   if (stats.numericFields.length > 0) container.appendChild(buildNumericSection(stats));
   // フィールド一覧
-  container.appendChild(buildFieldSection(stats, arr.length));
+  container.appendChild(buildFieldSection(stats, filteredArr.length));
 }
 
 function analyzeData(arr) {
@@ -461,6 +498,386 @@ function buildSection(title, subtitle) {
   const body = el('div', 'analysis-section-body');
   sec.appendChild(header); sec.appendChild(body);
   return sec;
+}
+
+// ===== 条件チェッカー =====
+
+const OPERATORS_STRING = [
+  { value: 'contains',      label: '含む' },
+  { value: 'not_contains',  label: '含まない' },
+  { value: 'starts_with',   label: 'から始まる' },
+  { value: 'ends_with',     label: 'で終わる' },
+  { value: 'equals',        label: '完全一致' },
+  { value: 'not_equals',    label: '一致しない' },
+  { value: 'is_empty',      label: '空文字列' },
+  { value: 'regex',         label: '正規表現' },
+  { value: 'is_null',       label: 'null / 未定義' },
+  { value: 'is_not_null',   label: 'not null' },
+  { value: 'in_list',       label: 'リスト内に含まれる' },
+];
+
+const OPERATORS_NUMBER = [
+  { value: 'num_eq',        label: '= (等しい)' },
+  { value: 'num_neq',       label: '≠ (等しくない)' },
+  { value: 'num_gt',        label: '> (より大きい)' },
+  { value: 'num_gte',       label: '≥ (以上)' },
+  { value: 'num_lt',        label: '< (より小さい)' },
+  { value: 'num_lte',       label: '≤ (以下)' },
+  { value: 'num_between',   label: '範囲内 (between)' },
+  { value: 'is_null',       label: 'null / 未定義' },
+  { value: 'is_not_null',   label: 'not null' },
+  { value: 'in_list',       label: 'リスト内に含まれる' },
+];
+
+const OPERATORS_BOOLEAN = [
+  { value: 'equals',        label: '= true' },
+  { value: 'not_equals',    label: '= false' },
+  { value: 'is_null',       label: 'null / 未定義' },
+  { value: 'is_not_null',   label: 'not null' },
+];
+
+const OPERATORS_COMMON = [
+  { value: 'is_null',       label: 'null / 未定義' },
+  { value: 'is_not_null',   label: 'not null' },
+];
+
+function getOperatorsForType(type) {
+  if (type === 'number') return OPERATORS_NUMBER;
+  if (type === 'boolean') return OPERATORS_BOOLEAN;
+  if (type === 'string') return OPERATORS_STRING;
+  return OPERATORS_COMMON;
+}
+
+function needsInput(op) {
+  return !['is_null', 'is_not_null', 'is_empty', 'equals', 'not_equals'].includes(op)
+    && op !== '';
+}
+function isBooleanOp(op) { return ['equals', 'not_equals'].includes(op); }
+function isBetweenOp(op) { return op === 'num_between'; }
+function isNoInputOp(op) { return ['is_null', 'is_not_null', 'is_empty'].includes(op); }
+
+function getFieldType(stats, fieldPath) {
+  const f = stats.fields.find(f => f.path === fieldPath);
+  return f ? f.type : 'string';
+}
+
+function buildConditionCheckerSection(stats, arr) {
+  const sec = el('div', 'analysis-section');
+  const header = el('div', 'analysis-section-header');
+  header.innerHTML = `<span>🔎 条件チェッカー</span><span style="color:var(--text-muted);font-weight:400;font-size:0.75rem">カラムと条件を指定してレコード数を確認</span>`;
+  sec.appendChild(header);
+
+  const body = el('div', 'analysis-section-body');
+
+  // ツールバー（AND/OR + 追加ボタン）
+  const toolbar = el('div', 'condition-checker-toolbar');
+
+  const logicToggle = el('div', 'condition-logic-toggle');
+  ['AND', 'OR'].forEach(l => {
+    const btn = el('button', 'logic-btn' + (conditionLogic === l ? ' active' : ''));
+    btn.textContent = l;
+    btn.onclick = () => {
+      conditionLogic = l;
+      logicToggle.querySelectorAll('.logic-btn').forEach(b => b.classList.toggle('active', b.textContent === l));
+      runAllConditionChecks(arr, stats);
+    };
+    logicToggle.appendChild(btn);
+  });
+
+  const addBtn = el('button', 'btn-add-condition');
+  addBtn.innerHTML = '＋ 条件を追加';
+  addBtn.onclick = () => addConditionRow(conditionList, stats, arr);
+
+  toolbar.appendChild(logicToggle);
+  toolbar.appendChild(addBtn);
+  body.appendChild(toolbar);
+
+  // 結合結果バナー
+  const combinedBanner = el('div', 'combined-result-banner');
+  combinedBanner.id = 'conditionCombinedBanner';
+  combinedBanner.style.display = 'none';
+  body.appendChild(combinedBanner);
+
+  // 条件リスト
+  const conditionList = el('div', 'condition-list');
+  conditionList.id = 'conditionList';
+  body.appendChild(conditionList);
+
+  sec.appendChild(body);
+
+  // 既存の条件行を再描画
+  conditionRows.forEach(state => {
+    const row = createConditionRowEl(state, stats, arr);
+    conditionList.appendChild(row);
+  });
+  if (conditionRows.length === 0) {
+    // 最初の1行を追加
+    addConditionRow(conditionList, stats, arr);
+  }
+
+  return sec;
+}
+
+function addConditionRow(listEl, stats, arr) {
+  const id = ++conditionCounter;
+  const state = { id, field: stats.fields[0]?.path || '', operator: '', value: '', value2: '', result: null };
+  conditionRows.push(state);
+  const rowEl = createConditionRowEl(state, stats, arr);
+  listEl.appendChild(rowEl);
+}
+
+function createConditionRowEl(state, stats, arr) {
+  const row = el('div', 'condition-row' + (state.result !== null ? ' has-result' : ''));
+  row.dataset.condId = state.id;
+
+  // フィールド選択
+  const fieldSel = el('select', 'condition-select');
+  stats.fields.forEach(f => {
+    const opt = document.createElement('option');
+    opt.value = f.path;
+    opt.textContent = f.path;
+    if (f.path === state.field) opt.selected = true;
+    fieldSel.appendChild(opt);
+  });
+
+  // 演算子選択
+  const opSel = el('select', 'condition-select');
+
+  // 値入力エリア
+  const inputWrap = el('div', 'condition-input-wrap');
+
+  // フィールド変更 → 演算子リスト更新
+  function updateOperators() {
+    const type = getFieldType(stats, fieldSel.value);
+    const ops = getOperatorsForType(type);
+    opSel.innerHTML = '';
+    ops.forEach(op => {
+      const opt = document.createElement('option');
+      opt.value = op.value;
+      opt.textContent = op.label;
+      if (op.value === state.operator) opt.selected = true;
+      opSel.appendChild(opt);
+    });
+    if (!state.operator) opSel.selectedIndex = 0;
+    updateInputArea();
+  }
+
+  // 演算子変更 → 入力エリア更新
+  function updateInputArea() {
+    inputWrap.innerHTML = '';
+    const op = opSel.value;
+    const type = getFieldType(stats, fieldSel.value);
+
+    if (isNoInputOp(op)) {
+      // 入力不要
+      const ph = el('span', '');
+      ph.style.cssText = 'color:var(--text-muted);font-size:0.75rem;padding:0 4px;';
+      ph.textContent = '（入力不要）';
+      inputWrap.appendChild(ph);
+    } else if (isBooleanOp(op) && type === 'boolean') {
+      const sel = el('select', 'condition-select condition-input');
+      sel.innerHTML = '<option value="true">true</option><option value="false">false</option>';
+      sel.value = state.value || 'true';
+      sel.oninput = () => { state.value = sel.value; };
+      inputWrap.appendChild(sel);
+    } else if (isBetweenOp(op)) {
+      const inp1 = el('input', 'condition-input');
+      inp1.type = 'number'; inp1.placeholder = '最小値'; inp1.value = state.value || '';
+      inp1.oninput = () => { state.value = inp1.value; };
+      const sep = el('span', 'between-sep'); sep.textContent = '〜';
+      const inp2 = el('input', 'condition-input');
+      inp2.type = 'number'; inp2.placeholder = '最大値'; inp2.value = state.value2 || '';
+      inp2.oninput = () => { state.value2 = inp2.value; };
+      inputWrap.appendChild(inp1); inputWrap.appendChild(sep); inputWrap.appendChild(inp2);
+    } else {
+      const isNum = ['num_eq','num_neq','num_gt','num_gte','num_lt','num_lte'].includes(op);
+      const inp = el('input', 'condition-input');
+      inp.type = isNum ? 'number' : 'text';
+      inp.placeholder = op === 'in_list' ? '値1, 値2, 値3' : op === 'regex' ? '正規表現パターン' : '値を入力';
+      inp.value = state.value || '';
+      inp.oninput = () => { state.value = inp.value; };
+      inputWrap.appendChild(inp);
+    }
+  }
+
+  fieldSel.onchange = () => {
+    state.field = fieldSel.value;
+    state.operator = '';
+    state.value = '';
+    state.value2 = '';
+    updateOperators();
+  };
+  opSel.onchange = () => {
+    state.operator = opSel.value;
+    state.value = '';
+    state.value2 = '';
+    updateInputArea();
+  };
+
+  updateOperators();
+
+  // 実行ボタン
+  const runBtn = el('button', 'btn-run-check');
+  runBtn.textContent = '実行';
+  runBtn.onclick = () => {
+    state.field = fieldSel.value;
+    state.operator = opSel.value;
+    runSingleConditionCheck(state, arr, row);
+    runAllConditionChecks(arr, stats);
+  };
+
+  // 削除ボタン
+  const delBtn = el('button', 'btn-remove-condition');
+  delBtn.innerHTML = '✕';
+  delBtn.title = '条件を削除';
+  delBtn.onclick = () => {
+    conditionRows = conditionRows.filter(r => r.id !== state.id);
+    row.remove();
+    runAllConditionChecks(arr, stats);
+  };
+
+  row.appendChild(fieldSel);
+  row.appendChild(opSel);
+  row.appendChild(inputWrap);
+  row.appendChild(runBtn);
+  row.appendChild(delBtn);
+
+  // 既存の結果を復元
+  if (state.result !== null) {
+    appendResultToRow(row, state, arr.length);
+  }
+
+  return row;
+}
+
+function runSingleConditionCheck(state, arr, rowEl) {
+  const { field, operator } = state;
+  if (!field || !operator) return;
+
+  const matched = arr.filter(record => {
+    const val = getNestedValue(record, field);
+    return evaluateCondition(val, operator, state.value, state.value2);
+  });
+
+  state.result = matched;
+  state.matchedIndices = arr.map((r, i) => matched.includes(r) ? i : -1).filter(i => i >= 0);
+
+  rowEl.classList.add('has-result');
+  // 既存の結果行を削除して再描画
+  const old = rowEl.querySelector('.condition-result');
+  if (old) old.remove();
+  appendResultToRow(rowEl, state, arr.length);
+}
+
+function appendResultToRow(rowEl, state, total) {
+  const matched = state.result;
+  if (!matched) return;
+  const count = matched.length;
+  const pct = total > 0 ? (count / total * 100) : 0;
+
+  const resultDiv = el('div', 'condition-result');
+
+  const barWrap = el('div', 'condition-result-bar-wrap');
+  const bar = el('div', 'condition-result-bar');
+  bar.style.width = '0%';
+  setTimeout(() => bar.style.width = pct + '%', 50);
+  barWrap.appendChild(bar);
+
+  const txt = el('span', 'condition-result-text');
+  txt.innerHTML = `<strong>${count}</strong> / ${total} 件 &nbsp;(<strong>${pct.toFixed(1)}%</strong>)`;
+
+  resultDiv.appendChild(barWrap);
+  resultDiv.appendChild(txt);
+  rowEl.appendChild(resultDiv);
+}
+
+function runAllConditionChecks(arr, stats) {
+  const banner = document.getElementById('conditionCombinedBanner');
+  if (!banner) return;
+
+  const validResults = conditionRows.filter(r => r.result !== null);
+  
+  let combined = arr;
+  if (validResults.length > 0) {
+    if (conditionLogic === 'AND') {
+      combined = arr.filter(record =>
+        validResults.every(r => r.result && r.result.includes(record))
+      );
+    } else {
+      const union = new Set();
+      validResults.forEach(r => r.result && r.result.forEach(rec => union.add(rec)));
+      combined = [...union];
+    }
+  }
+
+  if (validResults.length >= 2) {
+    const count = combined.length;
+    const pct = arr.length > 0 ? (count / arr.length * 100) : 0;
+    banner.style.display = 'flex';
+    banner.innerHTML = `
+      <span>🔗 ${conditionLogic} 結合結果：<strong>${count}</strong> / ${arr.length} 件 &nbsp;(<strong>${pct.toFixed(1)}%</strong>)</span>
+    `;
+  } else {
+    banner.style.display = 'none';
+  }
+
+  // 絞り込み結果を分析コンテナとテーブルに反映
+  renderDynamicAnalysisResults(combined);
+  updateFilteredTable(combined, validResults.length > 0);
+}
+
+function evaluateCondition(val, operator, checkVal, checkVal2) {
+  const isNullVal = val === null || val === undefined;
+  switch (operator) {
+    case 'is_null':       return isNullVal;
+    case 'is_not_null':   return !isNullVal;
+    case 'is_empty':      return !isNullVal && String(val) === '';
+    case 'contains':      return !isNullVal && String(val).toLowerCase().includes(String(checkVal).toLowerCase());
+    case 'not_contains':  return isNullVal || !String(val).toLowerCase().includes(String(checkVal).toLowerCase());
+    case 'starts_with':   return !isNullVal && String(val).toLowerCase().startsWith(String(checkVal).toLowerCase());
+    case 'ends_with':     return !isNullVal && String(val).toLowerCase().endsWith(String(checkVal).toLowerCase());
+    case 'equals':        return !isNullVal && String(val).toLowerCase() === String(checkVal).toLowerCase();
+    case 'not_equals':    return isNullVal || String(val).toLowerCase() !== String(checkVal).toLowerCase();
+    case 'regex': {
+      if (isNullVal) return false;
+      try { return new RegExp(checkVal).test(String(val)); } catch { return false; }
+    }
+    case 'in_list': {
+      if (isNullVal) return false;
+      const list = String(checkVal).split(',').map(s => s.trim().toLowerCase());
+      return list.includes(String(val).toLowerCase());
+    }
+    case 'num_eq':        return !isNullVal && Number(val) === Number(checkVal);
+    case 'num_neq':       return !isNullVal && Number(val) !== Number(checkVal);
+    case 'num_gt':        return !isNullVal && Number(val) >  Number(checkVal);
+    case 'num_gte':       return !isNullVal && Number(val) >= Number(checkVal);
+    case 'num_lt':        return !isNullVal && Number(val) <  Number(checkVal);
+    case 'num_lte':       return !isNullVal && Number(val) <= Number(checkVal);
+    case 'num_between':   return !isNullVal && Number(val) >= Number(checkVal) && Number(val) <= Number(checkVal2);
+    default: return false;
+  }
+}
+
+function getNestedValue(obj, path) {
+  if (!path) return undefined;
+  const parts = path.split('.');
+  let cur = obj;
+  for (const p of parts) {
+    if (cur === null || cur === undefined) return undefined;
+    cur = cur[p];
+  }
+  return cur;
+}
+
+function updateFilteredTable(records, isFiltered) {
+  renderTable(records);
+  if (isFiltered) {
+    const count = records.length;
+    const container = document.getElementById('tableContainer');
+    const banner = el('div', 'info-banner');
+    banner.innerHTML = `🔎 条件フィルター結果: <strong>${count} 件</strong> を表示中`;
+    container.insertBefore(banner, container.firstChild);
+  }
 }
 
 // ===== テーブルビュー =====
