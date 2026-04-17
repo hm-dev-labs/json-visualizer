@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JSON ビジュアライザー & アナライザー</title>
+  <meta name="description" content="JSONデータの可視化・分析ツール - Null率、Enum一覧、データ概要を確認">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="appHeader">
+    <div class="header-content">
+      <h1><span class="logo-brace">{</span> JSON ビジュアライザー <span class="logo-brace">}</span></h1>
+      <p class="subtitle">貼り付け・可視化・分析</p>
+    </div>
+  </header>
+
+  <main class="container" id="mainContainer">
+    <section class="editor-panel" id="editorPanel">
+      <div class="panel-header">
+        <h2>Editor</h2>
+        <div class="toolbar" id="editorToolbar">
+          <button id="btnFormat" onclick="formatJSON()" title="フォーマット (Ctrl+Shift+F)">✨ 整形</button>
+          <button id="btnMinify" onclick="minifyJSON()" title="ミニファイ">📦 圧縮</button>
+          <button id="btnCopy" onclick="copyJSON()" title="コピー">📋 コピー</button>
+          <button id="btnClear" onclick="clearEditor()" title="クリア">🗑️ クリア</button>
+          <button id="btnSample" onclick="loadSample()" title="サンプルデータを読み込む">📄 サンプル</button>
+          <label class="file-upload-btn" id="btnUpload" title="JSONファイルをアップロード">
+            📁 ファイル
+            <input type="file" accept=".json,.txt" onchange="handleFileInput(event)" hidden>
+          </label>
+        </div>
+      </div>
+      <div class="editor-wrapper" id="editorWrapper">
+        <div class="line-numbers" id="lineNumbers"></div>
+        <textarea id="jsonInput" spellcheck="false" placeholder="JSONをここに貼り付けてください...&#10;&#10;ファイルをドラッグ＆ドロップすることもできます"></textarea>
+        <div class="drop-overlay" id="dropOverlay">
+          <div class="drop-icon">📂</div>
+          <p>ファイルをドロップ</p>
+        </div>
+      </div>
+      <div class="status-bar" id="statusBar">
+        <div class="status-left">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="statusText">Ready</span>
+        </div>
+        <div class="status-right">
+          <span id="statusSize"></span>
+          <span id="statusLines"></span>
+        </div>
+      </div>
+    </section>
+
+    <div class="resizer" id="resizer" title="ドラッグしてリサイズ"></div>
+
+    <section class="viz-panel" id="vizPanel">
+      <div class="tab-bar" id="tabBar">
+        <button class="tab active" data-tab="tree" id="tabTree" onclick="switchTab('tree')">🌳 ツリー表示</button>
+        <button class="tab" data-tab="analysis" id="tabAnalysis" onclick="switchTab('analysis')">📊 分析</button>
+        <button class="tab" data-tab="table" id="tabTable" onclick="switchTab('table')">📋 テーブル</button>
+      </div>
+      <div class="tab-content" id="tabContent">
+        <div class="tab-pane active" id="treePane">
+          <div class="tree-toolbar" id="treeToolbar">
+            <input type="text" id="treeSearch" placeholder="🔍 キーや値を検索..." oninput="searchTree(this.value)">
+            <button id="btnExpandAll" onclick="expandAll()" title="すべて展開">⊞ 展開</button>
+            <button id="btnCollapseAll" onclick="collapseAll()" title="すべて折りたたむ">⊟ 折りたたむ</button>
+          </div>
+          <div class="tree-container" id="treeContainer">
+            <div class="empty-state"><div class="empty-icon">🔍</div><p>JSONを貼り付けるとツリー表示されます</p></div>
+          </div>
+        </div>
+        <div class="tab-pane" id="analysisPane">
+          <div class="analysis-container" id="analysisContainer">
+            <div class="empty-state"><div class="empty-icon">📊</div><p>JSON配列データを貼り付けると分析結果が表示されます</p></div>
+          </div>
+        </div>
+        <div class="tab-pane" id="tablePane">
+          <div class="table-container" id="tableContainer">
+            <div class="empty-state"><div class="empty-icon">📋</div><p>JSON配列データを貼り付けるとテーブル表示されます</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
