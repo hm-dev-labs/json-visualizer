@@ -42,11 +42,25 @@ document.addEventListener('drop', e => {
   if (file) readFile(file);
 });
 
-function handleFileInput(e) { const f = e.target.files[0]; if (f) readFile(f); }
+function handleFileInput(e) {
+  const f = e.target.files[0];
+  if (f) {
+    readFile(f);
+    // 同じファイルを再度選択できるようinputをリセット
+    e.target.value = '';
+  }
+}
 function readFile(file) {
   const r = new FileReader();
-  r.onload = ev => { textarea.value = ev.target.result; updateLineNumbers(); parseAndRender(); updateStatus(); };
-  r.readAsText(file);
+  r.onload = ev => {
+    textarea.value = ev.target.result;
+    updateLineNumbers();
+    parseAndRender();
+    updateStatus();
+    showToast(`「${file.name}」を読み込みました`);
+  };
+  r.onerror = () => showToast('ファイルの読み込みに失敗しました', false);
+  r.readAsText(file, 'UTF-8');
 }
 
 // ===== JSON パース & レンダー =====

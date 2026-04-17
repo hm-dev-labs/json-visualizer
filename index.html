@@ -22,13 +22,10 @@
         <h2>Editor</h2>
         <div class="toolbar" id="editorToolbar">
           <button id="btnFormat" onclick="formatJSON()" title="フォーマット (Ctrl+Shift+F)">✨ 整形</button>
-          <button id="btnMinify" onclick="minifyJSON()" title="ミニファイ">📦 圧縮</button>
-          <button id="btnCopy" onclick="copyJSON()" title="コピー">📋 コピー</button>
-          <button id="btnClear" onclick="clearEditor()" title="クリア">🗑️ クリア</button>
           <button id="btnSample" onclick="loadSample()" title="サンプルデータを読み込む">📄 サンプル</button>
-          <label class="file-upload-btn" id="btnUpload" title="JSONファイルをアップロード">
+          <label class="file-upload-btn" id="btnUpload" title="JSONファイルをアップロード" onclick="document.getElementById('fileInput').click()">
             📁 ファイル
-            <input type="file" accept=".json,.txt" onchange="handleFileInput(event)" hidden>
+            <input type="file" id="fileInput" accept=".json,.txt" style="display:none" onchange="handleFileInput(event)">
           </label>
         </div>
       </div>
