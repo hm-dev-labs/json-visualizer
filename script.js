@@ -46,8 +46,6 @@ function handleFileInput(e) {
   const f = e.target.files[0];
   if (f) {
     readFile(f);
-    // 同じファイルを再度選択できるようinputをリセット
-    e.target.value = '';
   }
 }
 function readFile(file) {
